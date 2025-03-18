@@ -56,16 +56,24 @@ export class SocketManager {
     }
     
     private connect(): void {
-        // Connect to WebSocket server
-        const serverUrl = 'http://localhost:3000';
-        this.updateDebugText(`Connecting to server: ${serverUrl}`);
+        // Determine server URL based on environment
+        // In production, connect to the same host the game is served from
+        // In development, connect to localhost:3000
+        const isProduction = window.location.hostname !== 'localhost';
+        const serverUrl = isProduction ? window.location.origin : 'http://localhost:3000';
         
-        this.socket = io(serverUrl, {
+        this.updateDebugText(`Connecting to server: ${serverUrl} (${isProduction ? 'production' : 'development'})`);
+        
+        // Configure socket options based on environment
+        const options = {
             transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: 5,
             reconnectionDelay: 1000
-        });
+        };
+        
+        // Create socket connection
+        this.socket = io(serverUrl, options);
         
         this.socket.on('connect', () => {
             this.updateDebugText(`Connected! Socket ID: ${this.socket.id}`);
@@ -79,7 +87,16 @@ export class SocketManager {
         
         this.socket.on('connect_error', (error) => {
             console.error('Connection error:', error);
-            this.updateDebugText(`Connection error: ${error}`);
+            this.updateDebugText(`Connection error: ${error.message}`);
+            
+            // If we're in production and get an error, try reconnecting
+            if (isProduction) {
+                this.updateDebugText('Retrying connection in 3 seconds...');
+                setTimeout(() => {
+                    this.updateDebugText('Retrying connection...');
+                    this.socket.connect();
+                }, 3000);
+            }
         });
 
         this.setupSocketListeners();

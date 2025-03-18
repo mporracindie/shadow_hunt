@@ -10,6 +10,7 @@ const server = http.Server(app);
 // In development, we're running on a different port than webpack-dev-server
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0'; // Listen on all network interfaces
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // Socket.io setup with CORS for development
 const io = socketIO(server, {
@@ -23,6 +24,13 @@ const io = socketIO(server, {
 
 // Serve static files from the 'dist' directory
 app.use(express.static(path.join(__dirname, 'dist')));
+
+// In production, serve all requests with the game
+if (IS_PRODUCTION) {
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
+}
 
 // Enable CORS for all Express routes
 app.use((req, res, next) => {
@@ -163,9 +171,12 @@ server.listen(PORT, HOST, () => {
     console.log(`- Local:   http://localhost:${PORT}`);
     console.log(`- Network: http://${localIp}:${PORT}`);
     
-    console.log(`\nGame client should be running at:`);
-    console.log(`- Local:   http://localhost:8080`);
-    console.log(`- Network: http://${localIp}:8080`);
+    if (!IS_PRODUCTION) {
+        console.log(`\nGame client should be running at:`);
+        console.log(`- Local:   http://localhost:8080`);
+        console.log(`- Network: http://${localIp}:8080`);
+    }
     
     console.log('\nCurrent players:', Object.keys(players).length);
+    console.log('Environment:', IS_PRODUCTION ? 'Production' : 'Development');
 }); 

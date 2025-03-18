@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import GameScene from '../scenes/GameScene';
+import GameScene, { PlayerOptions } from '../scenes/GameScene';
 
 export interface PlayerInfo {
     id: string;
@@ -8,6 +8,8 @@ export interface PlayerInfo {
     flipX: boolean;
     animation: string;
     playerNumber: number;
+    name: string;
+    role: 'Survivor' | 'Killer';
 }
 
 export class SocketManager {
@@ -20,9 +22,11 @@ export class SocketManager {
     private playerPositionsText!: Phaser.GameObjects.Text;
     private isDebugMode: boolean = true;
     private playerColors: string[] = ['#00ff00', '#ff0000', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
+    private playerOptions: PlayerOptions;
 
-    constructor(gameScene: GameScene) {
+    constructor(gameScene: GameScene, playerOptions: PlayerOptions) {
         this.gameScene = gameScene;
+        this.playerOptions = playerOptions;
 
         // Add debug text at the top left
         this.debugText = this.gameScene.add.text(20, 20, 'Connecting...', {
@@ -81,7 +85,10 @@ export class SocketManager {
             // Force request for players after connection
             setTimeout(() => {
                 console.log("Requesting players list from server");
-                this.socket.emit('requestPlayers');
+                this.socket.emit('requestPlayers', {
+                    name: this.playerOptions.name,
+                    role: this.playerOptions.role
+                });
             }, 1000);
         });
         
@@ -122,14 +129,14 @@ export class SocketManager {
         // Add local player position
         const localPlayer = this.gameScene.getPlayer();
         if (localPlayer) {
-            text += `You: (${Math.floor(localPlayer.x)}, ${Math.floor(localPlayer.y)})\n`;
+            text += `You (${this.playerOptions.role}): (${Math.floor(localPlayer.x)}, ${Math.floor(localPlayer.y)})\n`;
         }
         
         // Add other player positions
         this.otherPlayers.forEach((sprite, id) => {
             const label = this.playerLabels.get(id);
-            const playerNumber = label ? label.text.replace('Player ', '') : '?';
-            text += `P${playerNumber}: (${Math.floor(sprite.x)}, ${Math.floor(sprite.y)})\n`;
+            const playerName = label ? label.text.split(' ')[0] : '?';
+            text += `${playerName}: (${Math.floor(sprite.x)}, ${Math.floor(sprite.y)})\n`;
         });
         
         this.playerPositionsText.setText(text);
@@ -153,14 +160,14 @@ export class SocketManager {
             // Process our own player info first
             if (this.playerId && players[this.playerId]) {
                 const myInfo = players[this.playerId];
-                this.updateDebugText(`I am player ${myInfo.playerNumber}`);
+                this.updateDebugText(`I am player ${myInfo.playerNumber} (${myInfo.role})`);
                 this.gameScene.events.emit('playerId', myInfo.playerNumber);
             }
             
             // Then process other players
             Object.keys(players).forEach((id) => {
                 if (id !== this.playerId) {
-                    this.updateDebugText(`Adding player ${players[id].playerNumber} (ID: ${id.substring(0, 6)})`);
+                    this.updateDebugText(`Adding player ${players[id].name} (${players[id].role})`);
                     this.addOtherPlayer(players[id]);
                 }
             });
@@ -173,7 +180,7 @@ export class SocketManager {
         this.socket.on('newPlayer', (playerInfo: PlayerInfo) => {
             if (playerInfo.id === this.playerId) return; // Skip if it's us
             
-            this.updateDebugText(`New player joined: ${playerInfo.playerNumber} (ID: ${playerInfo.id.substring(0, 6)})`);
+            this.updateDebugText(`New player joined: ${playerInfo.name} (${playerInfo.role})`);
             console.log("New player data:", playerInfo);
             this.addOtherPlayer(playerInfo);
             this.updatePlayerPositionsText();
@@ -185,7 +192,7 @@ export class SocketManager {
             
             // Only update debug text occasionally
             if (Math.random() < 0.01) {
-                this.updateDebugText(`Player ${playerInfo.playerNumber} at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
+                this.updateDebugText(`Player ${playerInfo.name} at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
             }
             
             this.updateOtherPlayer(playerInfo);
@@ -215,34 +222,34 @@ export class SocketManager {
         
         // Check if we already have this player
         if (this.otherPlayers.has(playerInfo.id)) {
-            console.log(`Player ${playerInfo.playerNumber} already exists, updating`);
+            console.log(`Player ${playerInfo.name} already exists, updating`);
             this.updateOtherPlayer(playerInfo);
             return;
         }
         
-        console.log(`Creating player ${playerInfo.playerNumber} sprite at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
+        console.log(`Creating player ${playerInfo.name} (${playerInfo.role}) at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
         
-        // Create sprite for the other player
+        // Create sprite for the other player based on their role
+        const spriteKey = playerInfo.role === 'Killer' ? 'skeletonWalk' : 'spearmanWalk';
         const otherPlayer = this.gameScene.physics.add.sprite(
             playerInfo.x,
             playerInfo.y,
-            'skeletonWalk'
+            spriteKey
         );
         otherPlayer.setScale(0.5);
         otherPlayer.setFlipX(playerInfo.flipX);
         
-        // Select color based on player number for consistency
-        const colorIndex = (playerInfo.playerNumber - 1) % this.playerColors.length;
-        const playerColor = this.playerColors[colorIndex];
+        // Select color based on player role
+        const roleColor = playerInfo.role === 'Killer' ? '#ff0000' : '#00ff00';
         
-        // Create text label with player number
+        // Create text label with player name and role
         const label = this.gameScene.add.text(
             playerInfo.x,
             playerInfo.y - 50,
-            `Player ${playerInfo.playerNumber}`,
+            `${playerInfo.name} (${playerInfo.role})`,
             {
                 fontSize: '16px',
-                color: playerColor,
+                color: roleColor,
                 stroke: '#000000',
                 strokeThickness: 3
             }
@@ -253,10 +260,11 @@ export class SocketManager {
         this.otherPlayers.set(playerInfo.id, otherPlayer);
         this.playerLabels.set(playerInfo.id, label);
         
-        // Set animations
+        // Set animations based on the animation string coming from server
+        // which now includes the character type prefix
         otherPlayer.anims.play(playerInfo.animation);
         
-        this.updateDebugText(`Added player ${playerInfo.playerNumber} at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
+        this.updateDebugText(`Added player ${playerInfo.name} at (${Math.floor(playerInfo.x)}, ${Math.floor(playerInfo.y)})`);
     }
 
     private updateOtherPlayer(playerInfo: PlayerInfo): void {
@@ -274,7 +282,7 @@ export class SocketManager {
 
         if (!otherPlayer || !label) {
             // Player doesn't exist yet - add them
-            console.log(`Player ${playerInfo.playerNumber} not found, adding`);
+            console.log(`Player ${playerInfo.name} not found, adding`);
             this.addOtherPlayer(playerInfo);
             return;
         }
@@ -318,7 +326,9 @@ export class SocketManager {
                 x,
                 y,
                 flipX,
-                animation
+                animation,
+                name: this.playerOptions.name,
+                role: this.playerOptions.role
             });
             
             // Update player positions display

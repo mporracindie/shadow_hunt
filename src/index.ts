@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import GameScene from './scenes/GameScene';
+import TitleScene from './scenes/TitleScene';
 
 // Game configuration
 const config: Phaser.Types.Core.GameConfig = {
@@ -15,8 +16,8 @@ const config: Phaser.Types.Core.GameConfig = {
             debug: false
         }
     },
-    scene: [GameScene]
+    scene: [TitleScene, GameScene]
 };
 
-// Create the game instance
-new Phaser.Game(config); 
+// Create the game with the configuration
+const game = new Phaser.Game(config); 

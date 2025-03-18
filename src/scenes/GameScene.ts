@@ -1,6 +1,11 @@
 import Phaser from 'phaser';
 import { SocketManager } from '../multiplayer/SocketManager';
 
+export interface PlayerOptions {
+    name: string;
+    role: 'Survivor' | 'Killer';
+}
+
 export default class GameScene extends Phaser.Scene {
     private player!: Phaser.Physics.Arcade.Sprite;
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -19,9 +24,20 @@ export default class GameScene extends Phaser.Scene {
     private playerNumber: number = 0;
     private isDebugMode: boolean = true; // Set to true to enable debug visuals
     private debugGraphics!: Phaser.GameObjects.Graphics;
+    private playerOptions: PlayerOptions = {
+        name: 'Player',
+        role: 'Survivor'
+    };
 
     constructor() {
         super('GameScene');
+    }
+
+    init(data: any): void {
+        // Get player options from previous scene
+        if (data && data.playerOptions) {
+            this.playerOptions = data.playerOptions;
+        }
     }
 
     preload(): void {
@@ -32,6 +48,17 @@ export default class GameScene extends Phaser.Scene {
         });
         
         this.load.spritesheet('skeletonRun', 'assets/skeleton_warrior/Run.png', {
+            frameWidth: 128,
+            frameHeight: 128
+        });
+        
+        // Load skeleton spearman sprite sheets
+        this.load.spritesheet('spearmanWalk', 'assets/skeleton_spearman/Walk.png', {
+            frameWidth: 128,
+            frameHeight: 128
+        });
+        
+        this.load.spritesheet('spearmanRun', 'assets/skeleton_spearman/Run.png', {
             frameWidth: 128,
             frameHeight: 128
         });
@@ -55,8 +82,9 @@ export default class GameScene extends Phaser.Scene {
         this.cameras.main.setBounds(0, 0, gameWidth, gameHeight);
         this.physics.world.setBounds(0, 0, gameWidth, gameHeight);
 
-        // Create player (skeleton warrior)
-        this.player = this.physics.add.sprite(gameWidth / 2, gameHeight / 2, 'skeletonWalk');
+        // Create player based on role selection
+        const spriteKey = this.playerOptions.role === 'Killer' ? 'skeletonWalk' : 'spearmanWalk';
+        this.player = this.physics.add.sprite(gameWidth / 2, gameHeight / 2, spriteKey);
         this.player.setCollideWorldBounds(true);
         this.player.setScale(0.5); // Scale down the sprite if needed
         
@@ -64,7 +92,7 @@ export default class GameScene extends Phaser.Scene {
         this.playerLabel = this.add.text(
             this.player.x,
             this.player.y - 50,
-            'Connecting...',
+            this.playerOptions.name,
             {
                 fontSize: '16px',
                 color: '#00ff00',
@@ -74,28 +102,8 @@ export default class GameScene extends Phaser.Scene {
         );
         this.playerLabel.setOrigin(0.5);
         
-        // Simple walking animation (all frames in the spritesheet)
-        this.anims.create({
-            key: 'walk',
-            frames: this.anims.generateFrameNumbers('skeletonWalk', { start: 0, end: 6 }), // Assuming 7 frames (0-6)
-            frameRate: 10,
-            repeat: -1
-        });
-        
-        // Simple running animation (all frames in the spritesheet)
-        this.anims.create({
-            key: 'run',
-            frames: this.anims.generateFrameNumbers('skeletonRun', { start: 0, end: 7 }), // Assuming 8 frames (0-7)
-            frameRate: 15,
-            repeat: -1
-        });
-        
-        // Simple idle animation (just first frame of walk)
-        this.anims.create({
-            key: 'idle',
-            frames: [{ key: 'skeletonWalk', frame: 0 }],
-            frameRate: 10
-        });
+        // Create animations for both character types
+        this.createAnimations();
         
         // Set up input controls
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -120,28 +128,73 @@ export default class GameScene extends Phaser.Scene {
         this.cameras.main.startFollow(this.player, true, 0.5, 0.5);
         
         // Set initial animation
-        this.player.anims.play('idle');
+        const animPrefix = this.playerOptions.role === 'Killer' ? 'skeleton' : 'spearman';
+        this.player.anims.play(`${animPrefix}_idle`);
         
         // Initialize socket manager for multiplayer BEFORE player setup completes
-        this.socketManager = new SocketManager(this);
+        this.socketManager = new SocketManager(this, this.playerOptions);
         
         // Listen for socket events to update our player number
         this.events.on('playerId', (playerNumber: number) => {
             this.playerNumber = playerNumber;
-            this.playerLabel.setText(`Player ${playerNumber} (You)`);
-            console.log("Updated local player label to:", `Player ${playerNumber} (You)`);
+            this.playerLabel.setText(`${this.playerOptions.name} (${this.playerOptions.role})`);
+            console.log("Updated local player label to:", `${this.playerOptions.name} (${this.playerOptions.role})`);
             
-            // Also adjust color based on player number for consistency
-            const colors = ['#00ff00', '#ff0000', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
-            const colorIndex = (playerNumber - 1) % colors.length;
-            this.playerLabel.setColor(colors[colorIndex]);
+            // Also adjust color based on player role for consistency
+            const roleColor = this.playerOptions.role === 'Killer' ? '#ff0000' : '#00ff00';
+            this.playerLabel.setColor(roleColor);
+        });
+    }
+
+    createAnimations(): void {
+        // Create warrior animations
+        this.anims.create({
+            key: 'skeleton_walk',
+            frames: this.anims.generateFrameNumbers('skeletonWalk', { start: 0, end: 6 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'skeleton_run',
+            frames: this.anims.generateFrameNumbers('skeletonRun', { start: 0, end: 7 }),
+            frameRate: 15,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'skeleton_idle',
+            frames: [{ key: 'skeletonWalk', frame: 0 }],
+            frameRate: 10
+        });
+        
+        // Create spearman animations
+        this.anims.create({
+            key: 'spearman_walk',
+            frames: this.anims.generateFrameNumbers('spearmanWalk', { start: 0, end: 6 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'spearman_run',
+            frames: this.anims.generateFrameNumbers('spearmanRun', { start: 0, end: 7 }),
+            frameRate: 15,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'spearman_idle',
+            frames: [{ key: 'spearmanWalk', frame: 0 }],
+            frameRate: 10
         });
     }
 
     update(time: number, delta: number): void {
-        // Handle movement with arrow keys or WASD
-        const walkSpeed = 150;
-        const runSpeed = 300; // Running is faster
+        // Different movement speeds for Killer and Survivor
+        const walkSpeed = this.playerOptions.role === 'Killer' ? 180 : 150;
+        const runSpeed = this.playerOptions.role === 'Killer' ? 360 : 300;
+        
         let isMoving = false;
         let moveSpeed = this.isRunning ? runSpeed : walkSpeed;
         
@@ -173,6 +226,7 @@ export default class GameScene extends Phaser.Scene {
 
         // Handle animations and movement state
         let currentAnimation = 'idle';
+        const animPrefix = this.playerOptions.role === 'Killer' ? 'skeleton' : 'spearman';
         
         if (isMoving) {
             // Update movement timer when moving
@@ -182,11 +236,11 @@ export default class GameScene extends Phaser.Scene {
             if (this.movementTimer >= this.runThreshold && !this.isRunning) {
                 this.isRunning = true;
                 currentAnimation = 'run';
-                this.player.anims.play('run', true);
+                this.player.anims.play(`${animPrefix}_run`, true);
             } else if (!this.isRunning) {
                 // Walking animation
                 currentAnimation = 'walk';
-                this.player.anims.play('walk', true);
+                this.player.anims.play(`${animPrefix}_walk`, true);
             } else {
                 currentAnimation = 'run';
             }
@@ -197,19 +251,19 @@ export default class GameScene extends Phaser.Scene {
             
             // Idle animation
             currentAnimation = 'idle';
-            this.player.anims.play('idle', true);
+            this.player.anims.play(`${animPrefix}_idle`, true);
         }
         
         // Update player label position
         this.playerLabel.x = this.player.x;
         this.playerLabel.y = this.player.y - 50;
         
-        // Send position update to the server
+        // Send position update to the server, include player role for the movement speed
         this.socketManager.updatePlayerState(
             this.player.x,
             this.player.y,
             this.player.flipX,
-            currentAnimation
+            `${animPrefix}_${currentAnimation}`
         );
         
         // Update debug visuals if enabled
@@ -249,6 +303,11 @@ export default class GameScene extends Phaser.Scene {
     // Add a method to get the player for use by SocketManager
     public getPlayer(): Phaser.Physics.Arcade.Sprite {
         return this.player;
+    }
+    
+    // Get player options
+    public getPlayerOptions(): PlayerOptions {
+        return this.playerOptions;
     }
     
     shutdown(): void {
